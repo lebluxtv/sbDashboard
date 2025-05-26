@@ -4,18 +4,19 @@ const SB_WS_HOST = "127.0.0.1";
 const SB_WS_PORT = 8080;
 const SB_WS_PASS = "streamer.bot";
 
+// --- Etat UI groupes (collapsés ou non)
+let collapsedGroups = {};
+
 // === STREAMERBOT CONNECTION ===
 const client = new StreamerbotClient({
   host: SB_WS_HOST,
   port: SB_WS_PORT,
   password: SB_WS_PASS,
   endpoint: "/",
-subscribe: "*", // <-- important pour Broadcast
+  subscribe: "*",
   onConnect: async () => {
-console.log("WebSocket connecté !");
-    // Marquer "connecté"
+    console.log("WebSocket connecté !");
     document.body.classList.add("sb-connected");
-    // Info instance
     try {
       const resp = await client.getInfo();
       if (resp.info) {
@@ -29,11 +30,10 @@ console.log("WebSocket connecté !");
     } catch (e) {
       document.getElementById('instance-info').innerHTML = "<span style='color:#faa'>Erreur connexion instance</span>";
     }
-    // Actions
     fetchActions();
   },
   onDisconnect: () => {
-console.warn("WebSocket erreur :", err);
+    console.warn("Déconnecté de Streamer.bot.");
     document.body.classList.remove("sb-connected");
     document.getElementById('instance-info').innerHTML = "<span style='color:#faa'>Déconnecté</span>";
     document.getElementById("actions-tree").innerHTML = "";
@@ -44,28 +44,15 @@ console.warn("WebSocket erreur :", err);
 let actionsCache = [];
 let actionsSummaryCache = [];
 
-// =========== 1. GET INSTANCE INFO ===========
-client.getInfo().then(resp => {
-  if (resp.info) {
-    document.getElementById('instance-info').innerHTML = `
-      <div><b>Nom instance:</b> <span style="color:#fff">${resp.info.instanceName || "(non nommé)"}</span></div>
-      <div><b>Version:</b> <span style="color:#ffe15e">${resp.info.version}</span></div>
-      <div><b>Plateforme:</b> ${resp.info.platform}</div>
-      <div style="font-size:0.93em; color:#9ef; margin-top:3px;">${resp.info.machineName || ""}</div>
-    `;
-  }
-});
-
-// =========== 2. GET ACTIONS ================
+// =========== 1. GET ACTIONS ================
 function fetchActions() {
   client.getActions().then(resp => {
     actionsCache = resp.actions || [];
     renderActionsTree(actionsCache);
   });
 }
-fetchActions();
 
-// =========== 3. GET SUMMARY (par action C#) =====
+// =========== 2. GET SUMMARY (par action C#) =====
 document.getElementById("get-actions-summary").onclick = async function() {
   const resp = await client.getActions();
   const action = resp.actions.find(a => a.name && a.name.trim().toLowerCase() === SB_ACTION_NAME.trim().toLowerCase());
@@ -77,7 +64,7 @@ document.getElementById("get-actions-summary").onclick = async function() {
   // Attend la réponse via Broadcast.Custom
 };
 
-// =========== 4. LISTEN TO SUMMARY BROADCAST ==========
+// =========== 3. LISTEN TO SUMMARY BROADCAST ==========
 client.on("Broadcast.Custom", ({ data }) => {
   if (data?.type === "actionsSummary" && data?.summary) {
     actionsSummaryCache = data.summary;
@@ -85,7 +72,7 @@ client.on("Broadcast.Custom", ({ data }) => {
   }
 });
 
-// =========== 5. UI RENDERING ================
+// =========== 4. UI RENDERING ================
 function renderActionsTree(actions, isSummary = false) {
   const tree = document.getElementById("actions-tree");
   tree.innerHTML = "";
@@ -95,35 +82,62 @@ function renderActionsTree(actions, isSummary = false) {
     if (!byGroup[group]) byGroup[group] = [];
     byGroup[group].push(action);
   });
+
   Object.entries(byGroup).forEach(([group, groupActions]) => {
+    if (!(group in collapsedGroups)) collapsedGroups[group] = false; // default open
+
+    // — Group header (collapsible)
     const groupDiv = document.createElement("div");
     groupDiv.className = "action-group";
-    groupDiv.textContent = group;
+    groupDiv.innerHTML = `
+      <span class="group-toggle" style="user-select:none;cursor:pointer;font-size:1.07em;">
+        [${collapsedGroups[group] ? "+" : "−"}]
+      </span>
+      <span style="margin-left:7px;">${group}</span>
+    `;
+    groupDiv.onclick = e => {
+      collapsedGroups[group] = !collapsedGroups[group];
+      renderActionsTree(isSummary ? actionsSummaryCache : actionsCache, isSummary);
+      e.stopPropagation();
+    };
     tree.appendChild(groupDiv);
+
+    // — Actions list
     const ul = document.createElement("ul");
     ul.className = "actions-tree";
-    groupActions.forEach(action => {
-      const li = renderActionNode(action, isSummary);
+    if (collapsedGroups[group]) {
+      ul.style.display = "none";
+    }
+    groupActions.forEach((action, idx) => {
+      const li = renderActionNode(action, isSummary, 0, idx);
       ul.appendChild(li);
     });
     tree.appendChild(ul);
   });
 }
 
-function renderActionNode(action, isSummary = false, depth = 0) {
+// — Ligne d’action (zebra striping + colonnes)
+function renderActionNode(action, isSummary = false, depth = 0, rowIdx = 0) {
   const li = document.createElement("li");
   li.className = "action-node";
+  li.classList.add(rowIdx % 2 === 0 ? "row-even" : "row-odd");
   li.innerHTML = `
-    <span>${"—".repeat(depth)} ${action.name}</span>
-    <span class="${action.enabled ? "enabled-badge" : "disabled-badge"}">${action.enabled ? "on" : "off"}</span>
+    <span class="action-label">${"—".repeat(depth)} ${action.name}</span>
+    <span class="status-col">
+      <span class="${action.enabled ? "enabled-badge" : "disabled-badge"}">${action.enabled ? "on" : "off"}</span>
+    </span>
     ${action.triggers && action.triggers.length ? `<span class="trigger-badge">${action.triggers.length} triggers</span>` : ""}
   `;
-  li.onclick = () => renderActionDetail(action, isSummary);
+  li.onclick = e => {
+    renderActionDetail(action, isSummary);
+    e.stopPropagation();
+  };
+  // Sous-actions (indentées et zebra aussi)
   if (action.subActions && action.subActions.length) {
     const subUl = document.createElement("ul");
     subUl.className = "actions-tree";
-    action.subActions.forEach(sub => {
-      const subLi = renderActionNode(sub, isSummary, depth + 1);
+    action.subActions.forEach((sub, idx) => {
+      const subLi = renderActionNode(sub, isSummary, depth + 1, idx);
       subUl.appendChild(subLi);
     });
     li.appendChild(subUl);
@@ -131,6 +145,7 @@ function renderActionNode(action, isSummary = false, depth = 0) {
   return li;
 }
 
+// — Détail de l’action
 function renderActionDetail(action, isSummary = false) {
   const panel = document.getElementById("action-detail");
   panel.innerHTML = `
@@ -158,12 +173,14 @@ function renderActionDetail(action, isSummary = false) {
   highlightSelectedInTree(action.name);
 }
 
+// — Utilitaire d’échappement HTML
 function escapeHTML(str) {
   if (!str) return "";
   return str.replace(/[&<>'"]/g, c =>
     ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', "'": '&#39;', '"': '&quot;' })[c]);
 }
 
+// — Highlight ligne sélectionnée
 function highlightSelectedInTree(actionName) {
   document.querySelectorAll('.action-node').forEach(li => {
     if (li.textContent.trim().includes(actionName)) li.classList.add('selected');
