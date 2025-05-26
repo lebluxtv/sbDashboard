@@ -6,6 +6,10 @@ const SB_WS_PASS = "streamer.bot";
 
 // --- Etat UI groupes (collapsés ou non)
 let collapsedGroups = {};
+let actionsCache = [];
+let actionsSummaryCache = [];
+let actionsMode = "basic"; // "basic" ou "summary"
+let summaryRequested = false;
 
 // === STREAMERBOT CONNECTION ===
 const client = new StreamerbotClient({
@@ -15,7 +19,7 @@ const client = new StreamerbotClient({
   endpoint: "/",
   subscribe: "*",
   onConnect: async () => {
-    console.log("WebSocket connecté !");
+    console.log("[SB] WebSocket connecté !");
     document.body.classList.add("sb-connected");
     try {
       const resp = await client.getInfo();
@@ -33,37 +37,53 @@ const client = new StreamerbotClient({
     fetchActions();
   },
   onDisconnect: () => {
-    console.warn("Déconnecté de Streamer.bot.");
+    console.warn("[SB] Déconnecté de Streamer.bot.");
     document.body.classList.remove("sb-connected");
     document.getElementById('instance-info').innerHTML = "<span style='color:#faa'>Déconnecté</span>";
     document.getElementById("actions-tree").innerHTML = "";
     document.getElementById("action-detail").innerHTML = "";
+    setSummaryBadge("Déconnecté", "warn");
+    setButtonState("ready");
   }
 });
 
-let actionsCache = [];
-let actionsSummaryCache = [];
-let actionsMode = "basic"; // "basic" ou "summary"
-
 // =========== 1. GET ACTIONS ================
 function fetchActions() {
+  setButtonState("ready");
+  summaryRequested = false;
   client.getActions().then(resp => {
     actionsCache = resp.actions || [];
     actionsMode = "basic";
     renderActionsTree(actionsCache);
+    setSummaryBadge("Mode rapide (WebSocket)", "info");
+    console.log("[SB] Actions de base récupérées:", actionsCache.length);
   });
 }
 
 // =========== 2. GET SUMMARY (par action C#) =====
 document.getElementById("get-actions-summary").onclick = async function() {
-  const resp = await client.getActions();
-  const action = resp.actions.find(a => a.name && a.name.trim().toLowerCase() === SB_ACTION_NAME.trim().toLowerCase());
-  if (!action) {
-    alert("Action 'Actions Summary Broadcaster' non trouvée.");
-    return;
+  setButtonState("loading");
+  setSummaryBadge("Récupération en cours...", "loading");
+  summaryRequested = true;
+  console.log("[SB] Demande du résumé complet via ActionsSummaryBroadcaster...");
+
+  try {
+    const resp = await client.getActions();
+    const action = resp.actions.find(a => a.name && a.name.trim().toLowerCase() === SB_ACTION_NAME.trim().toLowerCase());
+    if (!action) {
+      alert("Action 'Actions Summary Broadcaster' non trouvée.");
+      setSummaryBadge("Action Broadcaster non trouvée", "warn");
+      setButtonState("ready");
+      return;
+    }
+    console.log("[SB] Exécution de l'action Broadcaster id:", action.id);
+    await client.doAction({ id: action.id });
+    // Attend la réponse via Broadcast.Custom
+  } catch (e) {
+    setSummaryBadge("Erreur d'envoi de la commande", "warn");
+    setButtonState("ready");
+    alert("Erreur lors de la demande du résumé : " + e.message);
   }
-  await client.doAction({ id: action.id });
-  // Attend la réponse via Broadcast.Custom
 };
 
 // =========== 3. LISTEN TO SUMMARY BROADCAST ==========
@@ -71,23 +91,67 @@ client.on("Broadcast.Custom", ({ data }) => {
   if (data?.type === "actionsSummary" && data?.summary) {
     actionsSummaryCache = data.summary;
     actionsMode = "summary";
-    console.log("Résumé des actions reçu :", actionsSummaryCache);
-    // Affiche aussi un exemple pour debug
-    if (actionsSummaryCache[0]) console.log("Exemple action[0]:", actionsSummaryCache[0]);
+    setButtonState("ready");
+    setSummaryBadge("Résumé complet reçu", "ok");
+    console.log("[SB] Résumé complet des actions reçu :", actionsSummaryCache.length, "actions");
+    if (actionsSummaryCache[0]) console.log("[SB] Exemple action[0]:", actionsSummaryCache[0]);
+    // Check for subActions and byteCode
+    let hasSub = false, hasByte = false;
+    for (const a of actionsSummaryCache) {
+      if (a.subActions && a.subActions.length) hasSub = true;
+      if (a.byteCode) hasByte = true;
+    }
+    if (!hasSub) console.warn("[SB] Aucun subAction récupéré !");
+    if (!hasByte) console.warn("[SB] Aucun byteCode récupéré dans le résumé !");
     renderActionsTree(actionsSummaryCache, true);
-    showSummaryIndicator();
+  } else if (summaryRequested) {
+    setSummaryBadge("Résumé non reçu (erreur de script Broadcaster?)", "warn");
+    setButtonState("ready");
+    console.warn("[SB] Aucune donnée 'actionsSummary' reçue via Broadcast.Custom.");
   }
 });
 
-// Petit badge "Résumé complet chargé"
-function showSummaryIndicator() {
-  let old = document.getElementById("summary-badge");
-  if (old) old.remove();
-  const badge = document.createElement("div");
-  badge.id = "summary-badge";
-  badge.style = "background:#212; color:#0ff; padding:6px 14px; border-radius:8px; margin: 10px 0 14px 0; text-align:center; font-size:1em; font-weight:bold; letter-spacing:.5px;";
-  badge.innerHTML = "<span style='color:#0ff8de;'>✓</span> Résumé complet des actions affiché";
-  document.querySelector(".sidebar").insertBefore(badge, document.getElementById("get-actions-summary").nextSibling);
+// Badge/bouton feedback UI
+function setButtonState(state) {
+  const btn = document.getElementById("get-actions-summary");
+  if (!btn) return;
+  if (state === "loading") {
+    btn.disabled = true;
+    btn.innerHTML = "⏳ Chargement…";
+    btn.style.opacity = 0.6;
+    btn.style.pointerEvents = "none";
+  } else {
+    btn.disabled = false;
+    btn.innerHTML = "Compléter via ActionsSummaryBroadcaster";
+    btn.style.opacity = 1;
+    btn.style.pointerEvents = "auto";
+  }
+}
+function setSummaryBadge(msg, style = "info") {
+  let badge = document.getElementById("summary-badge");
+  if (!badge) {
+    badge = document.createElement("div");
+    badge.id = "summary-badge";
+    document.querySelector(".sidebar").insertBefore(badge, document.getElementById("get-actions-summary").nextSibling);
+  }
+  badge.innerHTML = {
+    ok: `<span style='color:#0ff8de;font-size:1.2em;'>✓</span> ${msg}`,
+    warn: `<span style='color:#ff8a8a;font-size:1.1em;'>⚠</span> ${msg}`,
+    loading: `<span style='color:#ffe15e;'>⏳</span> ${msg}`,
+    info: msg
+  }[style] || msg;
+  badge.style.background = (style === "ok") ? "#20323c"
+    : (style === "warn") ? "#331c22"
+    : (style === "loading") ? "#302f1b"
+    : "#212";
+  badge.style.color = (style === "warn") ? "#ffe6e6" : "#0ff8de";
+  badge.style.padding = "6px 14px";
+  badge.style.borderRadius = "8px";
+  badge.style.margin = "10px 0 14px 0";
+  badge.style.textAlign = "center";
+  badge.style.fontSize = "1em";
+  badge.style.fontWeight = "bold";
+  badge.style.letterSpacing = ".5px";
 }
 
 // =========== 4. UI RENDERING ================
@@ -134,7 +198,6 @@ function renderActionsTree(actions, isSummary = false) {
   });
 }
 
-// — Ligne d’action (zebra striping + colonnes)
 function renderActionNode(action, isSummary = false, depth = 0, rowIdx = 0) {
   const li = document.createElement("li");
   li.className = "action-node";
@@ -149,6 +212,12 @@ function renderActionNode(action, isSummary = false, depth = 0, rowIdx = 0) {
   li.onclick = e => {
     renderActionDetail(action, isSummary);
     e.stopPropagation();
+    // LOG DÉTAILLÉ SUR CE QUI EST CLIQUÉ
+    console.log(`[UI] Action sélectionnée : ${action.name}`);
+    if (action.subActions && action.subActions.length)
+      console.log(`[UI] Sous-actions:`, action.subActions);
+    if (isSummary && action.byteCode)
+      console.log(`[UI] Code C# présent (length=${action.byteCode.length})`);
   };
   // Sous-actions (indentées et zebra aussi)
   if (action.subActions && action.subActions.length) {
@@ -163,7 +232,6 @@ function renderActionNode(action, isSummary = false, depth = 0, rowIdx = 0) {
   return li;
 }
 
-// — Détail de l’action (récursif : sous-actions + code)
 function renderActionDetail(action, isSummary = false) {
   const panel = document.getElementById("action-detail");
   panel.innerHTML = `
@@ -187,7 +255,6 @@ function renderActionDetail(action, isSummary = false) {
   highlightSelectedInTree(action.name);
 }
 
-// — Rendu récursif des sous-actions dans le détail (avec code éventuel)
 function renderSubActionsDetail(subActions, isSummary) {
   if (!subActions || !subActions.length) return "";
   return `
@@ -207,14 +274,12 @@ function renderSubActionsDetail(subActions, isSummary) {
   `;
 }
 
-// — Utilitaire d’échappement HTML
 function escapeHTML(str) {
   if (!str) return "";
   return str.replace(/[&<>'"]/g, c =>
     ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', "'": '&#39;', '"': '&quot;' })[c]);
 }
 
-// — Highlight ligne sélectionnée
 function highlightSelectedInTree(actionName) {
   document.querySelectorAll('.action-node').forEach(li => {
     if (li.textContent.trim().includes(actionName)) li.classList.add('selected');
@@ -231,7 +296,6 @@ resizer.addEventListener('mousedown', function(e) {
   document.body.style.cursor = 'ew-resize';
   document.body.style.userSelect = 'none';
 });
-
 document.addEventListener('mousemove', function(e) {
   if (!isResizing) return;
   const dashboardRect = document.querySelector('.dashboard').getBoundingClientRect();
@@ -240,7 +304,6 @@ document.addEventListener('mousemove', function(e) {
   if (newW > 550) newW = 550;
   sidebar.style.width = newW + 'px';
 });
-
 document.addEventListener('mouseup', function(e) {
   if (isResizing) {
     isResizing = false;
