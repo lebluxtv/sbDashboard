@@ -18,13 +18,27 @@ body {
 .sidebar {
   background: #24292f;
   width: 340px;
-  min-width: 240px;
+  min-width: 220px;
+  max-width: 550px;
   border-right: 2px solid #20232a;
   padding: 28px 16px 28px 26px;
   overflow-y: auto;
   display: flex;
   flex-direction: column;
   gap: 2em;
+  transition: width 0.12s;
+}
+#sidebar-resizer {
+  width: 8px;
+  cursor: ew-resize;
+  background: linear-gradient(90deg, #232931 60%, #181b20 100%);
+  transition: background .16s;
+  z-index: 9;
+  user-select: none;
+  min-height: 100%;
+}
+#sidebar-resizer:hover {
+  background: linear-gradient(90deg, #00ffff44 60%, #181b20 100%);
 }
 .main {
   flex: 1;
@@ -178,4 +192,38 @@ body {
 .trigger-item {
   color: #0ff8de;
   margin-bottom: 3px;
+}
+
+/* --------- Custom Scrollbars --------- */
+.sidebar,
+.main,
+.actions-tree,
+.detail-block,
+body {
+  scrollbar-width: thin;
+  scrollbar-color: #222d38 #181b20;
+}
+.sidebar::-webkit-scrollbar,
+.main::-webkit-scrollbar,
+.actions-tree::-webkit-scrollbar,
+.detail-block::-webkit-scrollbar,
+body::-webkit-scrollbar {
+  width: 11px;
+  background: #181b20;
+}
+.sidebar::-webkit-scrollbar-thumb,
+.main::-webkit-scrollbar-thumb,
+.actions-tree::-webkit-scrollbar-thumb,
+.detail-block::-webkit-scrollbar-thumb,
+body::-webkit-scrollbar-thumb {
+  background: #222d38;
+  border-radius: 7px;
+  border: 2.5px solid #181b20;
+}
+.sidebar::-webkit-scrollbar-thumb:hover,
+.main::-webkit-scrollbar-thumb:hover,
+.actions-tree::-webkit-scrollbar-thumb:hover,
+.detail-block::-webkit-scrollbar-thumb:hover,
+body::-webkit-scrollbar-thumb:hover {
+  background: #2d3a48;
 }
