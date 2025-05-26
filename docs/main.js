@@ -78,7 +78,7 @@ document.getElementById("get-actions-summary").onclick = async function() {
     }
     console.log("[SB] Exécution de l'action Broadcaster id:", action.id);
     await client.doAction({ id: action.id });
-    // Attend la réponse via Broadcast.Custom
+    // Attend la réponse via General (WebsocketBroadcastJson)
   } catch (e) {
     setSummaryBadge("Erreur d'envoi de la commande", "warn");
     setButtonState("ready");
@@ -86,29 +86,38 @@ document.getElementById("get-actions-summary").onclick = async function() {
   }
 };
 
-// =========== 3. LISTEN TO SUMMARY BROADCAST ==========
-client.on("Broadcast.Custom", ({ data }) => {
-  if (data?.type === "actionsSummary" && data?.summary) {
-    actionsSummaryCache = data.summary;
-    actionsMode = "summary";
-    setButtonState("ready");
-    setSummaryBadge("Résumé complet reçu", "ok");
-    console.log("[SB] Résumé complet des actions reçu :", actionsSummaryCache.length, "actions");
-    if (actionsSummaryCache[0]) console.log("[SB] Exemple action[0]:", actionsSummaryCache[0]);
-    // Check for subActions and byteCode
-    let hasSub = false, hasByte = false;
-    for (const a of actionsSummaryCache) {
-      if (a.subActions && a.subActions.length) hasSub = true;
-      if (a.byteCode) hasByte = true;
-    }
-    if (!hasSub) console.warn("[SB] Aucun subAction récupéré !");
-    if (!hasByte) console.warn("[SB] Aucun byteCode récupéré dans le résumé !");
-    renderActionsTree(actionsSummaryCache, true);
-  } else if (summaryRequested) {
-    setSummaryBadge("Résumé non reçu (erreur de script Broadcaster?)", "warn");
-    setButtonState("ready");
-    console.warn("[SB] Aucune donnée 'actionsSummary' reçue via Broadcast.Custom.");
+// =========== 3. LISTEN TO SUMMARY BROADCAST (GENERAL) ==========
+client.on('*', ({event, data}) => {
+  // DEBUG LOG
+  if (event && (event.source === "General" || event.source === "Broadcast")) {
+    console.log(`[SB][RECV] event:`, event, "\ndata:", data);
   }
+
+  // Traitement du résumé reçu via WebsocketBroadcastJson (event.source === 'General')
+  if (event.source === "General") {
+    if (data?.type === "actionsSummary" && data?.summary) {
+      actionsSummaryCache = data.summary;
+      actionsMode = "summary";
+      setButtonState("ready");
+      setSummaryBadge("Résumé complet reçu (General)", "ok");
+      console.log("[SB] Résumé complet des actions reçu via General :", actionsSummaryCache.length, "actions");
+      if (actionsSummaryCache[0]) console.log("[SB] Exemple action[0]:", actionsSummaryCache[0]);
+      // Check for subActions and byteCode
+      let hasSub = false, hasByte = false;
+      for (const a of actionsSummaryCache) {
+        if (a.subActions && a.subActions.length) hasSub = true;
+        if (a.byteCode) hasByte = true;
+      }
+      if (!hasSub) console.warn("[SB] Aucun subAction récupéré !");
+      if (!hasByte) console.warn("[SB] Aucun byteCode récupéré dans le résumé !");
+      renderActionsTree(actionsSummaryCache, true);
+    } else if (summaryRequested) {
+      setSummaryBadge("Résumé non reçu (erreur de script Broadcaster?)", "warn");
+      setButtonState("ready");
+      console.warn("[SB] Aucune donnée 'actionsSummary' reçue via General.");
+    }
+  }
+  // Optionnel : tu peux traiter Broadcast.Custom si tu utilises encore l'ancien mode
 });
 
 // Badge/bouton feedback UI
