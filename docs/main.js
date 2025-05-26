@@ -43,11 +43,13 @@ const client = new StreamerbotClient({
 
 let actionsCache = [];
 let actionsSummaryCache = [];
+let actionsMode = "basic"; // "basic" ou "summary"
 
 // =========== 1. GET ACTIONS ================
 function fetchActions() {
   client.getActions().then(resp => {
     actionsCache = resp.actions || [];
+    actionsMode = "basic";
     renderActionsTree(actionsCache);
   });
 }
@@ -68,9 +70,25 @@ document.getElementById("get-actions-summary").onclick = async function() {
 client.on("Broadcast.Custom", ({ data }) => {
   if (data?.type === "actionsSummary" && data?.summary) {
     actionsSummaryCache = data.summary;
+    actionsMode = "summary";
+    console.log("Résumé des actions reçu :", actionsSummaryCache);
+    // Affiche aussi un exemple pour debug
+    if (actionsSummaryCache[0]) console.log("Exemple action[0]:", actionsSummaryCache[0]);
     renderActionsTree(actionsSummaryCache, true);
+    showSummaryIndicator();
   }
 });
+
+// Petit badge "Résumé complet chargé"
+function showSummaryIndicator() {
+  let old = document.getElementById("summary-badge");
+  if (old) old.remove();
+  const badge = document.createElement("div");
+  badge.id = "summary-badge";
+  badge.style = "background:#212; color:#0ff; padding:6px 14px; border-radius:8px; margin: 10px 0 14px 0; text-align:center; font-size:1em; font-weight:bold; letter-spacing:.5px;";
+  badge.innerHTML = "<span style='color:#0ff8de;'>✓</span> Résumé complet des actions affiché";
+  document.querySelector(".sidebar").insertBefore(badge, document.getElementById("get-actions-summary").nextSibling);
+}
 
 // =========== 4. UI RENDERING ================
 function renderActionsTree(actions, isSummary = false) {
@@ -86,7 +104,7 @@ function renderActionsTree(actions, isSummary = false) {
   Object.entries(byGroup).forEach(([group, groupActions]) => {
     if (!(group in collapsedGroups)) collapsedGroups[group] = false; // default open
 
-    // — Group header (collapsible)
+    // Group header (collapsible)
     const groupDiv = document.createElement("div");
     groupDiv.className = "action-group";
     groupDiv.innerHTML = `
@@ -102,7 +120,7 @@ function renderActionsTree(actions, isSummary = false) {
     };
     tree.appendChild(groupDiv);
 
-    // — Actions list
+    // Actions list
     const ul = document.createElement("ul");
     ul.className = "actions-tree";
     if (collapsedGroups[group]) {
@@ -122,7 +140,7 @@ function renderActionNode(action, isSummary = false, depth = 0, rowIdx = 0) {
   li.className = "action-node";
   li.classList.add(rowIdx % 2 === 0 ? "row-even" : "row-odd");
   li.innerHTML = `
-    <span class="action-label">${"—".repeat(depth)} ${action.name}</span>
+    <span class="action-label">${"—".repeat(depth)} ${escapeHTML(action.name)}</span>
     <span class="status-col">
       <span class="${action.enabled ? "enabled-badge" : "disabled-badge"}">${action.enabled ? "on" : "off"}</span>
     </span>
@@ -145,32 +163,48 @@ function renderActionNode(action, isSummary = false, depth = 0, rowIdx = 0) {
   return li;
 }
 
-// — Détail de l’action
+// — Détail de l’action (récursif : sous-actions + code)
 function renderActionDetail(action, isSummary = false) {
   const panel = document.getElementById("action-detail");
   panel.innerHTML = `
-    <div class="detail-title">${action.name}</div>
+    <div class="detail-title">${escapeHTML(action.name)}</div>
     <div class="detail-block">
-      <b>Groupe:</b> ${action.group || "-"}<br>
+      <b>Groupe:</b> ${escapeHTML(action.group || "-")}<br>
       <b>Etat:</b> <span class="${action.enabled ? "enabled-badge" : "disabled-badge"}">${action.enabled ? "on" : "off"}</span>
       ${action.triggers && action.triggers.length ? `<div style="margin-top:7px;"><b>Triggers:</b><ul class="trigger-list">${action.triggers.map(t =>
         `<li class="trigger-item"><b>Type:</b> ${t.type} ${t.enabled ? '<span style="color:#8ff;">on</span>' : '<span style="color:#faa;">off</span>'}</li>`
       ).join("")}</ul></div>` : ""}
     </div>
+    ${renderSubActionsDetail(action.subActions, isSummary)}
     ${(isSummary && action.byteCode) ? `
       <div class="detail-block">
         <b>Code C# (décodé):</b>
         <pre class="bytecode-block">${escapeHTML(action.byteCode)}</pre>
       </div>
     ` : ""}
-    ${action.subActions && action.subActions.length ? `<div class="detail-block" style="background:#21292f;"><b>Sous-actions :</b>
-      <ul class="actions-tree">${action.subActions.map(sub => `
-        <li>${sub.name}${sub.byteCode ? " <span style='color:#ffe15e;'>(C#)</span>" : ""}</li>
-      `).join("")}</ul>
-    </div>` : ""}
   `;
   document.querySelectorAll('.action-node').forEach(n => n.classList.remove('selected'));
   highlightSelectedInTree(action.name);
+}
+
+// — Rendu récursif des sous-actions dans le détail (avec code éventuel)
+function renderSubActionsDetail(subActions, isSummary) {
+  if (!subActions || !subActions.length) return "";
+  return `
+    <div class="detail-block" style="background:#21292f;"><b>Sous-actions :</b>
+      <ul class="actions-tree">
+        ${subActions.map(sub => `
+          <li>
+            <span>${escapeHTML(sub.name)}</span>
+            ${sub.enabled === false ? '<span class="disabled-badge" style="margin-left:7px;">off</span>' : ''}
+            ${sub.enabled === true ? '<span class="enabled-badge" style="margin-left:7px;">on</span>' : ''}
+            ${(isSummary && sub.byteCode) ? "<span style='color:#ffe15e; margin-left:8px;'>(C#)</span>" : ""}
+            ${sub.subActions && sub.subActions.length ? renderSubActionsDetail(sub.subActions, isSummary) : ""}
+          </li>
+        `).join("")}
+      </ul>
+    </div>
+  `;
 }
 
 // — Utilitaire d’échappement HTML
@@ -186,6 +220,7 @@ function highlightSelectedInTree(actionName) {
     if (li.textContent.trim().includes(actionName)) li.classList.add('selected');
   });
 }
+
 // --- Sidebar Resizer / Split bar ---
 const sidebar = document.querySelector('.sidebar');
 const resizer = document.getElementById('sidebar-resizer');
@@ -194,16 +229,13 @@ let isResizing = false;
 resizer.addEventListener('mousedown', function(e) {
   isResizing = true;
   document.body.style.cursor = 'ew-resize';
-  // Empêche sélection de texte pendant le drag
   document.body.style.userSelect = 'none';
 });
 
 document.addEventListener('mousemove', function(e) {
   if (!isResizing) return;
-  // Récupère la position X de la souris par rapport au dashboard
   const dashboardRect = document.querySelector('.dashboard').getBoundingClientRect();
   let newW = e.clientX - dashboardRect.left;
-  // Plage autorisée (évite le collapse total)
   if (newW < 220) newW = 220;
   if (newW > 550) newW = 550;
   sidebar.style.width = newW + 'px';
@@ -216,4 +248,3 @@ document.addEventListener('mouseup', function(e) {
     document.body.style.userSelect = '';
   }
 });
-
