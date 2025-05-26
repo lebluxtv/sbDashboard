@@ -10,6 +10,33 @@ const client = new StreamerbotClient({
   port: SB_WS_PORT,
   password: SB_WS_PASS,
   endpoint: "/"
+subscribe: "*", // <-- important pour Broadcast
+  onConnect: async () => {
+    // Marquer "connecté"
+    document.body.classList.add("sb-connected");
+    // Info instance
+    try {
+      const resp = await client.getInfo();
+      if (resp.info) {
+        document.getElementById('instance-info').innerHTML = `
+          <div><b>Nom instance:</b> <span style="color:#fff">${resp.info.instanceName || "(non nommé)"}</span></div>
+          <div><b>Version:</b> <span style="color:#ffe15e">${resp.info.version}</span></div>
+          <div><b>Plateforme:</b> ${resp.info.platform}</div>
+          <div style="font-size:0.93em; color:#9ef; margin-top:3px;">${resp.info.machineName || ""}</div>
+        `;
+      }
+    } catch (e) {
+      document.getElementById('instance-info').innerHTML = "<span style='color:#faa'>Erreur connexion instance</span>";
+    }
+    // Actions
+    fetchActions();
+  },
+  onDisconnect: () => {
+    document.body.classList.remove("sb-connected");
+    document.getElementById('instance-info').innerHTML = "<span style='color:#faa'>Déconnecté</span>";
+    document.getElementById("actions-tree").innerHTML = "";
+    document.getElementById("action-detail").innerHTML = "";
+  }
 });
 
 let actionsCache = [];
