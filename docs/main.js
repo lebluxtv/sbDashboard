@@ -9,7 +9,7 @@ const client = new StreamerbotClient({
   host: SB_WS_HOST,
   port: SB_WS_PORT,
   password: SB_WS_PASS,
-  endpoint: "/"
+  endpoint: "/",
 subscribe: "*", // <-- important pour Broadcast
   onConnect: async () => {
 console.log("WebSocket connecté !");
