@@ -186,3 +186,34 @@ function highlightSelectedInTree(actionName) {
     if (li.textContent.trim().includes(actionName)) li.classList.add('selected');
   });
 }
+// --- Sidebar Resizer / Split bar ---
+const sidebar = document.querySelector('.sidebar');
+const resizer = document.getElementById('sidebar-resizer');
+let isResizing = false;
+
+resizer.addEventListener('mousedown', function(e) {
+  isResizing = true;
+  document.body.style.cursor = 'ew-resize';
+  // Empêche sélection de texte pendant le drag
+  document.body.style.userSelect = 'none';
+});
+
+document.addEventListener('mousemove', function(e) {
+  if (!isResizing) return;
+  // Récupère la position X de la souris par rapport au dashboard
+  const dashboardRect = document.querySelector('.dashboard').getBoundingClientRect();
+  let newW = e.clientX - dashboardRect.left;
+  // Plage autorisée (évite le collapse total)
+  if (newW < 220) newW = 220;
+  if (newW > 550) newW = 550;
+  sidebar.style.width = newW + 'px';
+});
+
+document.addEventListener('mouseup', function(e) {
+  if (isResizing) {
+    isResizing = false;
+    document.body.style.cursor = '';
+    document.body.style.userSelect = '';
+  }
+});
+
