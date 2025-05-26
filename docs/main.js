@@ -12,6 +12,7 @@ const client = new StreamerbotClient({
   endpoint: "/"
 subscribe: "*", // <-- important pour Broadcast
   onConnect: async () => {
+console.log("WebSocket connecté !");
     // Marquer "connecté"
     document.body.classList.add("sb-connected");
     // Info instance
@@ -32,6 +33,7 @@ subscribe: "*", // <-- important pour Broadcast
     fetchActions();
   },
   onDisconnect: () => {
+console.warn("WebSocket erreur :", err);
     document.body.classList.remove("sb-connected");
     document.getElementById('instance-info').innerHTML = "<span style='color:#faa'>Déconnecté</span>";
     document.getElementById("actions-tree").innerHTML = "";
